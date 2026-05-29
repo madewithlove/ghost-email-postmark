@@ -58,8 +58,7 @@ describe('PostmarkClient', function () {
         config.get.withArgs('bulkEmail').returns({
             postmark: {
                 serverToken: 'test-server-token',
-                messageStream: 'broadcasts',
-                bulkApiEnabled: true,
+                messageStream: 'outbound',
                 apiUrl: 'https://api.postmarkapp.com'
             },
             targetDeliveryWindow: 3600
@@ -108,19 +107,7 @@ describe('PostmarkClient', function () {
     });
 
     describe('getBatchSize', function () {
-        it('returns BULK_API_BATCH_SIZE when bulk API is enabled', function () {
-            const client = new PostmarkClient({config, settings});
-            assert.equal(client.getBatchSize(), 500);
-        });
-
-        it('returns DEFAULT_BATCH_SIZE when bulk API is disabled', function () {
-            config.get.withArgs('bulkEmail').returns({
-                postmark: {
-                    serverToken: 'test-token',
-                    bulkApiEnabled: false
-                }
-            });
-
+        it('returns BATCH_SIZE', function () {
             const client = new PostmarkClient({config, settings});
             assert.equal(client.getBatchSize(), 500);
         });
@@ -183,79 +170,9 @@ describe('PostmarkClient', function () {
             ];
         });
 
-        describe('Bulk API', function () {
-            it('sends via Bulk API when enabled', async function () {
+        describe('Batch API', function () {
+            it('sends via batch API for multiple recipients', async function () {
                 fetchStub.resolves({
-                    ok: true,
-                    json: sinon.stub().resolves({
-                        ID: 'bulk-123',
-                        SubmittedAt: '2024-01-01T12:00:00Z'
-                    })
-                });
-
-                const client = new PostmarkClient({config, settings});
-                const result = await client.send(message, recipientData, replacements);
-
-                assert.ok(fetchStub.calledOnce);
-                assert.equal(result.id, 'bulk-123');
-
-                const [url, options] = fetchStub.firstCall.args;
-                assert.equal(url, 'https://api.postmarkapp.com/email/bulk');
-                assert.equal(options.method, 'POST');
-                assert.equal(options.headers['X-Postmark-Server-Token'], 'test-server-token');
-
-                const payload = JSON.parse(options.body);
-                assert.equal(payload.From, 'sender@example.com');
-                assert.equal(payload.Subject, 'Test Subject');
-                assert.equal(payload.MessageStream, 'broadcasts');
-                assert.equal(payload.TrackOpens, true);
-                assert.equal(payload.TrackLinks, 'HtmlAndText');
-                assert.equal(payload.Messages.length, 2);
-                assert.deepEqual(payload.Messages[0], {
-                    To: 'test1@example.com',
-                    TemplateModel: {name: 'John'}
-                });
-            });
-
-            it('converts replacements to Postmark template syntax', async function () {
-                fetchStub.resolves({
-                    ok: true,
-                    json: sinon.stub().resolves({ID: 'bulk-123'})
-                });
-
-                const client = new PostmarkClient({config, settings});
-                await client.send(message, recipientData, replacements);
-
-                const payload = JSON.parse(fetchStub.firstCall.args[1].body);
-                assert.equal(payload.HtmlBody, '<html><body>Hello {{name}}</body></html>');
-                assert.equal(payload.TextBody, 'Hello {{name}}');
-            });
-
-            it('includes metadata in bulk request', async function () {
-                fetchStub.resolves({
-                    ok: true,
-                    json: sinon.stub().resolves({ID: 'bulk-123'})
-                });
-
-                const client = new PostmarkClient({config, settings});
-                await client.send(message, recipientData, replacements);
-
-                const payload = JSON.parse(fetchStub.firstCall.args[1].body);
-                assert.deepEqual(payload.Metadata, {'email-id': 'email-123'});
-            });
-
-            it('falls back to traditional API on Bulk API failure', async function () {
-                // First call (Bulk API) fails
-                fetchStub.onFirstCall().resolves({
-                    ok: false,
-                    status: 422,
-                    json: sinon.stub().resolves({
-                        Message: 'Bulk API Error'
-                    })
-                });
-
-                // Second call (traditional API) succeeds
-                fetchStub.onSecondCall().resolves({
                     ok: true,
                     json: sinon.stub().resolves([
                         {MessageID: 'msg-1'},
@@ -266,24 +183,66 @@ describe('PostmarkClient', function () {
                 const client = new PostmarkClient({config, settings});
                 const result = await client.send(message, recipientData, replacements);
 
-                assert.equal(fetchStub.callCount, 2);
+                assert.ok(fetchStub.calledOnce);
                 assert.equal(result.id, 'msg-1');
+
+                const [url, options] = fetchStub.firstCall.args;
+                assert.equal(url, 'https://api.postmarkapp.com/email/batch');
+                assert.equal(options.method, 'POST');
+                assert.equal(options.headers['X-Postmark-Server-Token'], 'test-server-token');
+
+                const payload = JSON.parse(options.body);
+                assert.equal(payload.length, 2);
+                assert.equal(payload[0].From, 'sender@example.com');
+                assert.equal(payload[0].To, 'test1@example.com');
+                assert.equal(payload[0].Subject, 'Test Subject');
+                assert.equal(payload[0].MessageStream, 'outbound');
+                assert.equal(payload[0].TrackOpens, true);
+                assert.equal(payload[0].TrackLinks, 'HtmlAndText');
             });
 
-            it('uses traditional API when deliveryTime is set', async function () {
+            it('applies replacements per recipient', async function () {
                 fetchStub.resolves({
                     ok: true,
                     json: sinon.stub().resolves([{MessageID: 'msg-1'}])
                 });
 
-                message.deliveryTime = new Date('2024-01-01T12:00:00Z');
+                const client = new PostmarkClient({config, settings});
+                await client.send(message, recipientData, replacements);
+
+                const payload = JSON.parse(fetchStub.firstCall.args[1].body);
+                assert.equal(payload[0].HtmlBody, '<html><body>Hello John</body></html>');
+                assert.equal(payload[1].HtmlBody, '<html><body>Hello Jane</body></html>');
+            });
+
+            it('includes metadata in request', async function () {
+                fetchStub.resolves({
+                    ok: true,
+                    json: sinon.stub().resolves([{MessageID: 'msg-1'}])
+                });
 
                 const client = new PostmarkClient({config, settings});
                 await client.send(message, recipientData, replacements);
 
-                // Should use batch endpoint
+                const payload = JSON.parse(fetchStub.firstCall.args[1].body);
+                assert.deepEqual(payload[0].Metadata, {'email-id': 'email-123'});
+            });
+
+            it('uses single email endpoint for one recipient', async function () {
+                fetchStub.resolves({
+                    ok: true,
+                    json: sinon.stub().resolves({MessageID: 'msg-1'})
+                });
+
+                const singleRecipientData = {
+                    'test@example.com': {name: 'John'}
+                };
+
+                const client = new PostmarkClient({config, settings});
+                await client.send(message, singleRecipientData, replacements);
+
                 const url = fetchStub.firstCall.args[0];
-                assert.equal(url, 'https://api.postmarkapp.com/email/batch');
+                assert.equal(url, 'https://api.postmarkapp.com/email');
             });
 
             it('handles API errors correctly', async function () {
@@ -304,73 +263,7 @@ describe('PostmarkClient', function () {
                     {code: 'POSTMARK_API_ERROR'}
                 );
             });
-        });
 
-        describe('Traditional API', function () {
-            beforeEach(function () {
-                config.get.withArgs('bulkEmail').returns({
-                    postmark: {
-                        serverToken: 'test-token',
-                        bulkApiEnabled: false
-                    }
-                });
-            });
-
-            it('sends via batch endpoint for multiple recipients', async function () {
-                fetchStub.resolves({
-                    ok: true,
-                    json: sinon.stub().resolves([
-                        {MessageID: 'msg-1'},
-                        {MessageID: 'msg-2'}
-                    ])
-                });
-
-                const client = new PostmarkClient({config, settings});
-                const result = await client.send(message, recipientData, replacements);
-
-                assert.ok(fetchStub.calledOnce);
-                assert.equal(result.id, 'msg-1');
-
-                const [url, options] = fetchStub.firstCall.args;
-                assert.equal(url, 'https://api.postmarkapp.com/email/batch');
-                assert.equal(options.method, 'POST');
-
-                const payload = JSON.parse(options.body);
-                assert.equal(payload.length, 2);
-                assert.equal(payload[0].To, 'test1@example.com');
-                assert.equal(payload[0].MessageStream, 'outbound');
-            });
-
-            it('applies replacements per recipient', async function () {
-                fetchStub.resolves({
-                    ok: true,
-                    json: sinon.stub().resolves([{MessageID: 'msg-1'}])
-                });
-
-                const client = new PostmarkClient({config, settings});
-                await client.send(message, recipientData, replacements);
-
-                const payload = JSON.parse(fetchStub.firstCall.args[1].body);
-                assert.equal(payload[0].HtmlBody, '<html><body>Hello John</body></html>');
-                assert.equal(payload[1].HtmlBody, '<html><body>Hello Jane</body></html>');
-            });
-
-            it('uses single email endpoint for one recipient', async function () {
-                fetchStub.resolves({
-                    ok: true,
-                    json: sinon.stub().resolves({MessageID: 'msg-1'})
-                });
-
-                const singleRecipientData = {
-                    'test@example.com': {name: 'John'}
-                };
-
-                const client = new PostmarkClient({config, settings});
-                await client.send(message, singleRecipientData, replacements);
-
-                const url = fetchStub.firstCall.args[0];
-                assert.equal(url, 'https://api.postmarkapp.com/email');
-            });
         });
 
         it('returns null when not configured', async function () {

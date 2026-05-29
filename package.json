@@ -1,7 +1,7 @@
 {
   "name": "ghost-email-postmark",
   "version": "1.0.0",
-  "description": "Postmark email provider adapter for Ghost with Bulk API support",
+  "description": "Postmark email provider adapter for Ghost with batch email support",
   "main": "index.js",
   "scripts": {
     "test": "mocha 'test/**/*.test.js'",
@@ -33,5 +33,8 @@
   "bugs": {
     "url": "https://github.com/madewithlove/ghost-email-postmark/issues"
   },
-  "homepage": "https://github.com/madewithlove/ghost-email-postmark#readme"
+  "homepage": "https://github.com/madewithlove/ghost-email-postmark#readme",
+  "dependencies": {
+    "postmark": "^4.0.7"
+  }
 }

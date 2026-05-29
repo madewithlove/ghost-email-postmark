@@ -1,14 +1,12 @@
 # ghost-email-postmark
 
-Postmark email provider adapter for Ghost with Bulk Email API support.
+Postmark email provider adapter for Ghost with batch email support.
 
 ## Features
 
-- **Bulk Email API Support**: Automatically uses Postmark's Bulk Email API when available
-- **Automatic Fallback**: Falls back to traditional Postmark API if Bulk API fails
+- **Batch Email Sending**: Send up to 500 emails per batch using Postmark's batch API
 - **Email Analytics**: Fetch email events for delivery, opens, clicks, bounces, and spam complaints
 - **Ghost Integration**: Seamlessly integrates with Ghost's email adapter pattern
-- **Batch Sending**: Send up to 500 emails per batch
 - **Personalization**: Full support for Ghost's replacement variables (merge tags)
 - **Zero Ghost Footprint**: No Postmark code in Ghost core - loaded dynamically from npm
 
@@ -52,8 +50,7 @@ Add to your `config.[env].json`:
     "provider": "ghost-email-postmark",
     "postmark": {
       "serverToken": "your-postmark-server-token",
-      "messageStream": "broadcasts",
-      "bulkApiEnabled": true,
+      "messageStream": "outbound",
       "apiUrl": "https://api.postmarkapp.com"
     },
     "batchSize": 500,
@@ -106,37 +103,27 @@ class PostmarkAdapter {
 
 ### Optional
 
-- `messageStream`: Message stream to use (default: "broadcasts" for Bulk API, "outbound" for traditional)
-- `bulkApiEnabled`: Enable Bulk Email API (default: false)
+- `messageStream`: Message stream to use (default: "outbound")
 - `apiUrl`: Postmark API URL (default: "https://api.postmarkapp.com")
 - `batchSize`: Maximum recipients per batch (default: 500)
 - `targetDeliveryWindow`: Delivery window in seconds for rate limiting (default: 0)
 
 ## Email Sending
 
-### Bulk API (Recommended)
+### Batch API
 
-When `bulkApiEnabled: true` and no scheduled delivery:
-
-1. Converts replacement tokens to Postmark template syntax (`{{variable}}`)
-2. Sends single API request with all recipients
-3. Returns bulk request ID
-
-**Advantages:**
-- Single API call per batch
-- More efficient for large batches
-- Better rate limits
-
-### Traditional API (Fallback)
-
-Automatically used when:
-- Bulk API disabled
-- Bulk API fails
-- Scheduled delivery requested
+The adapter uses Postmark's batch email API:
 
 1. Applies replacements individually per recipient
-2. Uses batch endpoint for multiple recipients
-3. Returns message ID
+2. Uses batch endpoint (`/email/batch`) for multiple recipients
+3. Uses single email endpoint (`/email`) for one recipient
+4. Returns message ID
+
+**Features:**
+- Up to 500 recipients per batch
+- Individual personalization per recipient
+- Open and click tracking
+- Metadata for analytics
 
 ## Email Analytics
 
