@@ -1,6 +1,6 @@
 {
   "name": "ghost-email-postmark",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Postmark email provider adapter for Ghost with batch email support",
   "main": "index.js",
   "scripts": {
