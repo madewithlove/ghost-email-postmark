@@ -1,6 +1,6 @@
 {
   "name": "ghost-email-postmark",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Postmark email provider adapter for Ghost with batch email support",
   "main": "index.js",
   "scripts": {
@@ -28,7 +28,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/madewithlove/ghost-email-postmark.git"
+    "url": "git+https://github.com/madewithlove/ghost-email-postmark.git"
   },
   "bugs": {
     "url": "https://github.com/madewithlove/ghost-email-postmark/issues"
@@ -36,5 +36,11 @@
   "homepage": "https://github.com/madewithlove/ghost-email-postmark#readme",
   "dependencies": {
     "postmark": "^4.0.7"
+  },
+  "peerDependencies": {
+    "@tryghost/debug": "*",
+    "@tryghost/logging": "*",
+    "@tryghost/metrics": "*",
+    "@tryghost/errors": "*"
   }
 }
