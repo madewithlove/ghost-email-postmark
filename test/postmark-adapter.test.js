@@ -174,7 +174,7 @@ describe('Postmark Adapter', function () {
 
             await assert.rejects(
                 async () => await adapter.send(data, {}),
-                {code: 'POSTMARK_API_ERROR'}
+                {code: 'BULK_EMAIL_SEND_FAILED'}
             );
 
             assert.ok(errorHandler.calledOnce);
@@ -257,7 +257,7 @@ describe('Postmark Adapter', function () {
             await adapter.fetchLatest(sinon.stub(), {});
 
             const [postmarkOptions] = PostmarkClientStub.prototype.fetchEvents.firstCall.args;
-            assert.equal(postmarkOptions.messagestream, 'broadcasts');
+            assert.equal(postmarkOptions.messagestream, 'broadcast');
         });
 
         it('formats dates correctly', async function () {

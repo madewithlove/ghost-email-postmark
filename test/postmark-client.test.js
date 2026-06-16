@@ -109,7 +109,7 @@ describe('PostmarkClient', function () {
     describe('getBatchSize', function () {
         it('returns BATCH_SIZE', function () {
             const client = new PostmarkClient({config, settings});
-            assert.equal(client.getBatchSize(), 500);
+            assert.equal(client.getBatchSize(), 100);
         });
     });
 
@@ -277,7 +277,7 @@ describe('PostmarkClient', function () {
 
         it('throws error for too many recipients', async function () {
             const tooManyRecipients = {};
-            for (let i = 0; i < 501; i++) {
+            for (let i = 0; i < 101; i++) {
                 tooManyRecipients[`test${i}@example.com`] = {name: 'Test'};
             }
 
@@ -285,61 +285,44 @@ describe('PostmarkClient', function () {
 
             await assert.rejects(
                 async () => await client.send(message, tooManyRecipients, replacements),
-                /only supports sending to 500 recipients/
+                /only supports sending to 100 recipients/
             );
         });
     });
 
     describe('fetchEvents', function () {
         it('fetches and processes message events', async function () {
-            const startDate = new Date();
+            // Events are fetched from the dedicated opens/clicks/bounces endpoints.
+            // Use a timestamp in the past so it passes the `timestamp <= startDate` filter.
+            const pastDate = new Date(Date.now() - 60000).toISOString();
 
-            // Mock messages response - need to return a Promise with json method
-            const messagesResponse = {
+            // First call (opens, page 1) returns one open event.
+            fetchStub.onCall(0).resolves({
                 ok: true,
                 json: sinon.stub().resolves({
-                    Messages: [
+                    Opens: [
                         {
                             MessageID: 'msg-1',
-                            Recipients: ['test@example.com'],
-                            Metadata: {'email-id': 'email-123'}
+                            Recipient: 'test@example.com',
+                            ReceivedAt: pastDate,
+                            Tag: 'ghost-email|email-123'
                         }
                     ]
                 })
-            };
+            });
 
-            // Mock message details response - use a date in the past
-            const detailsResponse = {
+            // Every subsequent call (opens page 2, clicks, bounces) returns empty,
+            // which stops pagination for each endpoint.
+            fetchStub.resolves({
                 ok: true,
-                json: sinon.stub().resolves({
-                    MessageEvents: [
-                        {
-                            Type: 'Delivered',
-                            ReceivedAt: new Date(startDate.getTime() - 1000).toISOString(),
-                            Recipient: 'test@example.com'
-                        }
-                    ]
-                })
-            };
-
-            // Mock empty messages response for second page (to stop pagination)
-            const emptyMessagesResponse = {
-                ok: true,
-                json: sinon.stub().resolves({
-                    Messages: []
-                })
-            };
-
-            // Setup stubs
-            fetchStub.onCall(0).resolves(messagesResponse);
-            fetchStub.onCall(1).resolves(detailsResponse);
-            fetchStub.onCall(2).resolves(emptyMessagesResponse);
+                json: sinon.stub().resolves({Opens: [], Clicks: [], Bounces: []})
+            });
 
             const client = new PostmarkClient({config, settings});
             const batchHandler = sinon.stub();
 
             await client.fetchEvents(
-                {count: 500, messagestream: 'broadcasts'},
+                {count: 500, messagestream: 'broadcast'},
                 batchHandler,
                 {maxEvents: 100}
             );
@@ -349,17 +332,16 @@ describe('PostmarkClient', function () {
 
             const events = batchHandler.firstCall.args[0];
             assert.equal(events.length, 1);
-            assert.equal(events[0].type, 'delivered');
+            assert.equal(events[0].type, 'opened');
             assert.equal(events[0].recipientEmail, 'test@example.com');
+            assert.equal(events[0].emailId, 'email-123');
         });
 
-        it('stops when no more messages', async function () {
-            // First call returns empty messages
+        it('stops when no more events', async function () {
+            // All endpoints return empty straight away.
             fetchStub.resolves({
                 ok: true,
-                json: sinon.stub().resolves({
-                    Messages: []
-                })
+                json: sinon.stub().resolves({Opens: [], Clicks: [], Bounces: []})
             });
 
             const client = new PostmarkClient({config, settings});
@@ -367,7 +349,8 @@ describe('PostmarkClient', function () {
 
             await client.fetchEvents({count: 500}, batchHandler, {});
 
-            assert.ok(fetchStub.calledOnce);
+            // One request per endpoint (opens, clicks, bounces), then stops.
+            assert.equal(fetchStub.callCount, 3);
             assert.ok(batchHandler.notCalled);
         });
     });
