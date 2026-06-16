@@ -1,0 +1,52 @@
+name: Publish to npm
+
+# Publishes the package to npm when a version tag (e.g. v1.0.12) is pushed.
+# Create one with:  npm version patch && git push --follow-tags
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for npm Trusted Publishing (OIDC) + provenance
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm test
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      # Fail early if the pushed tag doesn't match the version in package.json,
+      # so we never publish a mismatched version.
+      - name: Verify tag matches package.json version
+        if: github.ref_type == 'tag'
+        run: |
+          PKG_VERSION="v$(node -p "require('./package.json').version")"
+          if [ "$PKG_VERSION" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${PKG_VERSION}" >&2
+            exit 1
+          fi
+
+      - run: npm ci
+
+      # Trusted Publishing (OIDC) requires npm >= 11.5.1; Node 20 ships an older npm.
+      - run: npm install -g npm@latest
+
+      - run: npm publish --provenance --access public
