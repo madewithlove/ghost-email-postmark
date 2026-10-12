@@ -264,6 +264,47 @@ describe('PostmarkClient', function () {
                 );
             });
 
+            it('asks Postmark for an uncompressed response', async function () {
+                fetchStub.resolves({
+                    ok: true,
+                    json: sinon.stub().resolves([{MessageID: 'msg-1'}])
+                });
+
+                const client = new PostmarkClient({config, settings});
+                await client.send(message, recipientData, replacements);
+
+                const [, options] = fetchStub.firstCall.args;
+                assert.equal(options.headers['Accept-Encoding'], 'identity');
+            });
+
+            it('treats an accepted batch with an unreadable response as sent', async function () {
+                fetchStub.resolves({
+                    ok: true,
+                    status: 200,
+                    json: sinon.stub().rejects(new SyntaxError('Unexpected token is not valid JSON'))
+                });
+
+                const client = new PostmarkClient({config, settings});
+                const result = await client.send(message, recipientData, replacements);
+
+                assert.ok(fetchStub.calledOnce);
+                assert.match(result.id, /^traditional-/);
+                assert.ok(mockLogging.warn.calledOnce);
+            });
+
+            it('marks a timed out send as not retryable', async function () {
+                const abortError = new Error('This operation was aborted');
+                abortError.name = 'AbortError';
+                fetchStub.rejects(abortError);
+
+                const client = new PostmarkClient({config, settings});
+
+                await assert.rejects(
+                    async () => await client.send(message, recipientData, replacements),
+                    {code: 'POSTMARK_TIMEOUT', retryable: false}
+                );
+            });
+
         });
 
         it('returns null when not configured', async function () {
@@ -335,6 +376,21 @@ describe('PostmarkClient', function () {
             assert.equal(events[0].type, 'opened');
             assert.equal(events[0].recipientEmail, 'test@example.com');
             assert.equal(events[0].emailId, 'email-123');
+        });
+
+        it('throws when an events response cannot be read', async function () {
+            fetchStub.resolves({
+                ok: true,
+                status: 200,
+                json: sinon.stub().rejects(new SyntaxError('Unexpected token is not valid JSON'))
+            });
+
+            const client = new PostmarkClient({config, settings});
+
+            await assert.rejects(
+                async () => await client.fetchEvents({count: 500, messagestream: 'broadcast'}, sinon.stub(), {maxEvents: 100}),
+                {code: 'POSTMARK_NETWORK_ERROR'}
+            );
         });
 
         it('stops when no more events', async function () {

@@ -179,6 +179,31 @@ describe('Postmark Adapter', function () {
 
             assert.ok(errorHandler.calledOnce);
         });
+
+        it('keeps a not-retryable signal from PostmarkClient', async function () {
+            const adapter = new PostmarkAdapter({
+                configService,
+                settingsCache
+            });
+
+            const sendError = new Error('Postmark API request timed out after 30 seconds');
+            sendError.code = 'POSTMARK_TIMEOUT';
+            sendError.retryable = false;
+            PostmarkClientStub.prototype.send.rejects(sendError);
+
+            const data = {
+                subject: 'Test',
+                html: '<html><body>Test</body></html>',
+                from: 'sender@example.com',
+                recipients: [{email: 'test@example.com', replacements: []}],
+                replacementDefinitions: []
+            };
+
+            await assert.rejects(
+                async () => await adapter.send(data, {}),
+                {code: 'BULK_EMAIL_SEND_FAILED', retryable: false}
+            );
+        });
     });
 
     describe('getMaximumRecipients', function () {
